@@ -14,10 +14,10 @@ The package is now modular, allowing you to use individual components:
 
 from carbon_model_generator import CarbonModelGenerator
 # You can also import individual modules if needed:
-# from data.data_loader import DataLoader
-# from calculators.dcf_calculator import DCFCalculator
-# from calculators.irr_calculator import IRRCalculator
-# from calculators.goal_seeker import GoalSeeker
+# from data.loader import DataLoader
+# from core.dcf import DCFCalculator
+# from core.irr import IRRCalculator
+# from analysis.goal_seeker import GoalSeeker
 import pandas as pd
 
 

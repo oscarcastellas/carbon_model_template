@@ -8,7 +8,10 @@ key inputs and calculating resulting IRR for each scenario.
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional
-from .dcf_calculator import DCFCalculator
+try:
+    from ..core.dcf import DCFCalculator
+except ImportError:
+    from core.dcf import DCFCalculator
 
 
 class SensitivityAnalyzer:

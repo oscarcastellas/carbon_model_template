@@ -9,14 +9,17 @@ import pandas as pd
 import warnings
 from typing import Dict, Optional, List, Tuple
 
-from .data.data_loader import DataLoader
-from .calculators.dcf_calculator import DCFCalculator
-from .calculators.irr_calculator import IRRCalculator
-from .calculators.goal_seeker import GoalSeeker
-from .calculators.sensitivity_analyzer import SensitivityAnalyzer
-from .calculators.payback_calculator import PaybackCalculator
-from .calculators.monte_carlo import MonteCarloSimulator
-from .reporting.excel_exporter import ExcelExporter
+from .data.loader import DataLoader
+from .core.dcf import DCFCalculator
+from .core.irr import IRRCalculator
+from .core.payback import PaybackCalculator
+from .analysis.goal_seeker import GoalSeeker
+from .analysis.sensitivity import SensitivityAnalyzer
+from .analysis.monte_carlo import MonteCarloSimulator
+from .risk.flagger import RiskFlagger
+from .risk.scorer import RiskScoreCalculator
+from .valuation.breakeven import BreakevenCalculator
+from .export.excel import ExcelExporter
 
 
 class CarbonModelGenerator:
@@ -143,6 +146,9 @@ class CarbonModelGenerator:
         self.payback_period: Optional[float] = None
         self.goal_seeker: Optional[GoalSeeker] = None
         self.monte_carlo_results: Optional[Dict] = None
+        self.risk_flags: Optional[Dict] = None
+        self.risk_score: Optional[Dict] = None
+        self.breakeven_results: Optional[Dict] = None
     
     def _initialize_calculators(self) -> None:
         """Initialize calculator components with current assumptions."""
@@ -158,13 +164,22 @@ class CarbonModelGenerator:
                 dcf_calculator=self.dcf_calculator,
                 irr_calculator=self.irr_calculator
             )
+            # Initialize productivity tools (require DCF calculator)
+            self.breakeven_calculator = BreakevenCalculator(
+                dcf_calculator=self.dcf_calculator,
+                irr_calculator=self.irr_calculator
+            )
         else:
             # Create placeholder calculators (will be recreated when assumptions are set)
             self.dcf_calculator = None
             self.sensitivity_analyzer = None
             self.monte_carlo_simulator = None
+            self.breakeven_calculator = None
         
+        # Initialize simple tools (don't require DCF calculator)
         self.payback_calculator = PaybackCalculator()
+        self.risk_flagger = RiskFlagger()
+        self.risk_score_calculator = RiskScoreCalculator()
         self.excel_exporter = ExcelExporter()
     
     def _has_all_assumptions(self) -> bool:
@@ -443,6 +458,9 @@ class CarbonModelGenerator:
         results['streaming_percentage'] = streaming_percentage
         results['payback_period'] = self.payback_period
         
+        # Auto-flag risks after DCF
+        self._auto_flag_risks()
+        
         return results
     
     def calculate_npv(self, cash_flows: Optional[pd.Series] = None) -> float:
@@ -650,6 +668,9 @@ class CarbonModelGenerator:
         )
         results['payback_period'] = self.payback_period
         
+        # Auto-flag risks after goal-seeking
+        self._auto_flag_risks()
+        
         return results
     
     def run_sensitivity_table(
@@ -713,7 +734,10 @@ class CarbonModelGenerator:
         volume_multiplier_base: Optional[float] = None,
         volume_std_dev: Optional[float] = None,
         random_seed: Optional[int] = None,
-        use_percentage_variation: bool = False
+        use_percentage_variation: bool = False,
+        use_gbm: bool = False,
+        gbm_drift: Optional[float] = None,
+        gbm_volatility: Optional[float] = None
     ) -> Dict:
         """
         Run Monte Carlo simulation with dual-variable stochastic modeling.
@@ -809,11 +833,17 @@ class CarbonModelGenerator:
             volume_std_dev=volume_std_dev,
             simulations=simulations,
             random_seed=random_seed,
-            use_percentage_variation=use_percentage_variation
+            use_percentage_variation=use_percentage_variation,
+            use_gbm=use_gbm,
+            gbm_drift=gbm_drift,
+            gbm_volatility=gbm_volatility
         )
         
         # Store results
         self.monte_carlo_results = results
+        
+        # Re-flag risks with Monte Carlo volatility data
+        self._auto_flag_risks()
         
         print(f"Monte Carlo simulation complete!")
         print(f"  Mean IRR: {results['mc_mean_irr']:.2%}")
@@ -822,6 +852,162 @@ class CarbonModelGenerator:
         print(f"  Mean NPV: ${results['mc_mean_npv']:,.2f}")
         
         return results
+    
+    def _auto_flag_risks(self) -> None:
+        """
+        Automatically flag risks after DCF or goal-seeking.
+        
+        This is called automatically after run_dcf() and find_target_irr_stream().
+        """
+        if self.irr is None or self.npv is None:
+            return
+        
+        # Get volatility from Monte Carlo if available
+        irr_volatility = None
+        volume_volatility = None
+        price_volatility = None
+        
+        if self.monte_carlo_results:
+            irr_series = self.monte_carlo_results.get('irr_series', [])
+            if len(irr_series) > 0:
+                import numpy as np
+                irr_valid = [x for x in irr_series if pd.notna(x)]
+                if len(irr_valid) > 0:
+                    irr_volatility = np.std(irr_valid)
+            
+            # Extract volume and price volatility if available
+            volume_volatility = self.monte_carlo_results.get('volume_volatility')
+            price_volatility = self.monte_carlo_results.get('price_volatility')
+        
+        # Flag risks
+        self.risk_flags = self.risk_flagger.flag_risks(
+            irr=self.irr,
+            npv=self.npv,
+            payback_period=self.payback_period,
+            irr_volatility=irr_volatility,
+            credit_volumes=self.data['carbon_credits_gross'] if self.data is not None else None,
+            project_costs=self.data['project_implementation_costs'] if self.data is not None else None
+        )
+        
+        # Calculate risk score
+        self.risk_score = self.risk_score_calculator.calculate_overall_risk_score(
+            irr=self.irr,
+            npv=self.npv,
+            payback_period=self.payback_period,
+            credit_volumes=self.data['carbon_credits_gross'] if self.data is not None else None,
+            base_prices=self.data['base_carbon_price'] if self.data is not None else None,
+            project_costs=self.data['project_implementation_costs'] if self.data is not None else None,
+            volume_volatility=volume_volatility,
+            price_volatility=price_volatility,
+            total_investment=self._rubicon_investment_total
+        )
+    
+    def flag_risks(self) -> Dict:
+        """
+        Manually flag risks for the current project.
+        
+        Returns:
+        --------
+        Dict
+            Risk flags dictionary with risk_level, flags, red_flags, yellow_flags, green_flags
+        """
+        if self.irr is None or self.npv is None:
+            raise ValueError("Please run DCF analysis first using run_dcf()")
+        
+        self._auto_flag_risks()
+        return self.risk_flags
+    
+    def get_risk_summary(self) -> str:
+        """
+        Get a human-readable risk summary.
+        
+        Returns:
+        --------
+        str
+            Formatted risk summary
+        """
+        if self.risk_flags is None:
+            self.flag_risks()
+        
+        return self.risk_flagger.get_risk_summary(self.risk_flags)
+    
+    def calculate_risk_score(self) -> Dict:
+        """
+        Calculate overall risk score for the current project.
+        
+        Returns:
+        --------
+        Dict
+            Dictionary containing:
+            - 'overall_risk_score': Overall score (0-100)
+            - 'financial_risk': Financial risk score
+            - 'volume_risk': Volume risk score
+            - 'price_risk': Price risk score
+            - 'operational_risk': Operational risk score
+            - 'risk_category': 'Low', 'Medium', or 'High'
+        """
+        if self.irr is None or self.npv is None:
+            raise ValueError("Please run DCF analysis first using run_dcf()")
+        
+        self._auto_flag_risks()
+        return self.risk_score
+    
+    def calculate_breakeven(
+        self,
+        metric: str = 'all',
+        target_npv: float = 0.0
+    ) -> Dict:
+        """
+        Calculate breakeven points for key variables.
+        
+        Parameters:
+        -----------
+        metric : str
+            Which breakeven to calculate: 'price', 'volume', 'streaming', or 'all'
+        target_npv : float
+            Target NPV (default: 0.0 for true breakeven)
+            
+        Returns:
+        --------
+        Dict
+            Dictionary with breakeven calculations
+        """
+        if self.breakeven_calculator is None:
+            raise ValueError("Breakeven calculator not initialized. Please set assumptions first.")
+        
+        if self.data is None:
+            raise ValueError("Please load data first using load_data()")
+        
+        streaming_percentage = (
+            self.target_streaming_percentage 
+            if self.target_streaming_percentage is not None 
+            else self._streaming_percentage_initial
+        )
+        
+        if metric == 'price':
+            self.breakeven_results = {
+                'breakeven_price': self.breakeven_calculator.calculate_breakeven_price(
+                    self.data, streaming_percentage, target_npv
+                )
+            }
+        elif metric == 'volume':
+            self.breakeven_results = {
+                'breakeven_volume': self.breakeven_calculator.calculate_breakeven_volume(
+                    self.data, streaming_percentage, target_npv
+                )
+            }
+        elif metric == 'streaming':
+            self.breakeven_results = {
+                'breakeven_streaming': self.breakeven_calculator.calculate_breakeven_streaming(
+                    self.data, target_npv
+                )
+            }
+        else:  # 'all'
+            self.breakeven_results = self.breakeven_calculator.calculate_all_breakevens(
+                self.data, streaming_percentage, target_npv
+            )
+        
+        return self.breakeven_results
     
     def export_model_to_excel(self, filename: str) -> None:
         """
@@ -887,5 +1073,8 @@ class CarbonModelGenerator:
             valuation_schedule=self.dcf_results,
             sensitivity_table=sensitivity_table,
             payback_period=self.payback_period,
-            monte_carlo_results=self.monte_carlo_results
+            monte_carlo_results=self.monte_carlo_results,
+            risk_flags=self.risk_flags,
+            risk_score=self.risk_score,
+            breakeven_results=self.breakeven_results
         )

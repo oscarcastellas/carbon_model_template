@@ -7,17 +7,17 @@ Run: python test_excel.py
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import modules directly
-from data.data_loader import DataLoader
-from calculators.dcf_calculator import DCFCalculator
-from calculators.irr_calculator import IRRCalculator
-from calculators.goal_seeker import GoalSeeker
-from calculators.sensitivity_analyzer import SensitivityAnalyzer
-from calculators.payback_calculator import PaybackCalculator
-from calculators.monte_carlo import MonteCarloSimulator
-from reporting.excel_exporter import ExcelExporter
+from data.loader import DataLoader
+from core.dcf import DCFCalculator
+from core.irr import IRRCalculator
+from analysis.goal_seeker import GoalSeeker
+from analysis.sensitivity import SensitivityAnalyzer
+from core.payback import PaybackCalculator
+from analysis.monte_carlo import MonteCarloSimulator
+from export.excel import ExcelExporter
 import pandas as pd
 
 

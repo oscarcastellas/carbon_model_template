@@ -8,8 +8,14 @@ probabilistic risk on IRR and NPV using stochastic price and volume paths.
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
-from .dcf_calculator import DCFCalculator
-from .irr_calculator import IRRCalculator
+try:
+    from ..core.dcf import DCFCalculator
+    from ..core.irr import IRRCalculator
+    from .gbm_simulator import GBMPriceSimulator
+except ImportError:
+    from core.dcf import DCFCalculator
+    from core.irr import IRRCalculator
+    from analysis.gbm_simulator import GBMPriceSimulator
 
 
 class MonteCarloSimulator:
@@ -37,6 +43,7 @@ class MonteCarloSimulator:
         """
         self.dcf_calculator = dcf_calculator
         self.irr_calculator = irr_calculator
+        self.gbm_simulator = GBMPriceSimulator()
     
     def generate_price_path(
         self,
@@ -44,7 +51,10 @@ class MonteCarloSimulator:
         price_growth_base: float,
         price_growth_std_dev: float,
         num_years: int = 20,
-        use_percentage_variation: bool = False
+        use_percentage_variation: bool = False,
+        use_gbm: bool = False,
+        gbm_drift: Optional[float] = None,
+        gbm_volatility: Optional[float] = None
     ) -> pd.Series:
         """
         Generate a stochastic 20-year price path based on original price forecasts.
@@ -77,11 +87,30 @@ class MonteCarloSimulator:
             If True, applies percentage multipliers directly to prices.
             If False (default), applies stochastic deviations to growth rates.
             
+        use_gbm : bool
+            If True, use Geometric Brownian Motion instead of growth-rate method
+        gbm_drift : float, optional
+            GBM drift parameter (μ). If None and use_gbm=True, uses price_growth_base
+        gbm_volatility : float, optional
+            GBM volatility parameter (σ). If None and use_gbm=True, uses price_growth_std_dev
+            
         Returns:
         --------
         pd.Series
             Stochastic price path indexed by Year, centered around your original forecasts
         """
+        # Use GBM if requested
+        if use_gbm:
+            drift = gbm_drift if gbm_drift is not None else price_growth_base
+            volatility = gbm_volatility if gbm_volatility is not None else price_growth_std_dev
+            
+            return self.gbm_simulator.generate_gbm_path_from_base(
+                base_prices=base_prices,
+                drift=drift,
+                volatility=volatility
+            )
+        
+        # Original methods (growth-rate or percentage-based)
         if use_percentage_variation:
             # Mode 2: Percentage-based variation
             # Apply stochastic percentage multipliers directly to original prices
@@ -199,7 +228,10 @@ class MonteCarloSimulator:
         price_growth_std_dev: float,
         volume_multiplier_base: float,
         volume_std_dev: float,
-        use_percentage_variation: bool = False
+        use_percentage_variation: bool = False,
+        use_gbm: bool = False,
+        gbm_drift: Optional[float] = None,
+        gbm_volatility: Optional[float] = None
     ) -> Tuple[float, float]:
         """
         Run a single Monte Carlo simulation.
@@ -239,7 +271,10 @@ class MonteCarloSimulator:
             base_prices=base_data['base_carbon_price'],
             price_growth_base=price_growth_base,
             price_growth_std_dev=price_growth_std_dev,
-            use_percentage_variation=use_percentage_variation
+            use_percentage_variation=use_percentage_variation,
+            use_gbm=use_gbm,
+            gbm_drift=gbm_drift,
+            gbm_volatility=gbm_volatility
         )
         
         # Generate stochastic volume path
@@ -281,7 +316,10 @@ class MonteCarloSimulator:
         volume_std_dev: float,
         simulations: int = 5000,
         random_seed: Optional[int] = None,
-        use_percentage_variation: bool = False
+        use_percentage_variation: bool = False,
+        use_gbm: bool = False,
+        gbm_drift: Optional[float] = None,
+        gbm_volatility: Optional[float] = None
     ) -> Dict:
         """
         Run Monte Carlo simulation with dual-variable stochastic modeling.

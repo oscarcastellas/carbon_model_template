@@ -8,7 +8,7 @@ financial metrics for carbon credit streaming agreements.
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
-from .irr_calculator import IRRCalculator
+from .irr import IRRCalculator
 
 
 class DCFCalculator:

@@ -9,7 +9,10 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import brentq
 from typing import Dict, Callable, Optional
-from .dcf_calculator import DCFCalculator
+try:
+    from ..core.dcf import DCFCalculator
+except ImportError:
+    from core.dcf import DCFCalculator
 
 
 class GoalSeeker:

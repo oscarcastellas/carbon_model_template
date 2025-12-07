@@ -12,9 +12,12 @@ import numpy as np
 
 # Handle imports for both package and direct usage
 try:
-    from ..calculators.payback_calculator import PaybackCalculator
+    from ..core.payback import PaybackCalculator
 except ImportError:
-    from calculators.payback_calculator import PaybackCalculator
+    try:
+        from core.payback import PaybackCalculator
+    except ImportError:
+        from calculators.payback_calculator import PaybackCalculator
 
 
 class ExcelExporter:
@@ -39,7 +42,10 @@ class ExcelExporter:
         valuation_schedule: pd.DataFrame,
         sensitivity_table: Optional[pd.DataFrame] = None,
         payback_period: Optional[float] = None,
-        monte_carlo_results: Optional[Dict] = None
+        monte_carlo_results: Optional[Dict] = None,
+        risk_flags: Optional[Dict] = None,
+        risk_score: Optional[Dict] = None,
+        breakeven_results: Optional[Dict] = None
     ) -> None:
         """
         Export complete model to formula-based Excel file.
@@ -90,7 +96,8 @@ class ExcelExporter:
         summary_sheet = workbook.add_worksheet('Summary & Results')
         self._write_summary_results_sheet(
             workbook, summary_sheet, formats, valuation_schedule,
-            inputs_sheet, actual_irr, payback_period, monte_carlo_results
+            inputs_sheet, actual_irr, payback_period, monte_carlo_results,
+            risk_flags, risk_score, breakeven_results
         )
         
         # Sheet 4: Sensitivity Analysis
@@ -395,7 +402,10 @@ class ExcelExporter:
         inputs_sheet: xlsxwriter.Workbook.worksheet_class,
         actual_irr: float,
         payback_period: Optional[float],
-        monte_carlo_results: Optional[Dict]
+        monte_carlo_results: Optional[Dict],
+        risk_flags: Optional[Dict] = None,
+        risk_score: Optional[Dict] = None,
+        breakeven_results: Optional[Dict] = None
     ) -> None:
         """Write Summary & Results sheet with key metrics as formulas."""
         row = 0
@@ -479,6 +489,139 @@ class ExcelExporter:
                 else:
                     worksheet.write(row, 1, value, formats['bold_currency'])
                 row += 1
+        
+        # Risk Assessment Section
+        if risk_flags is not None or risk_score is not None:
+            row += 1
+            worksheet.write(row, 0, 'Risk Assessment', formats['subtitle'])
+            row += 1
+            
+            # Risk Score
+            if risk_score is not None:
+                worksheet.write(row, 0, 'Overall Risk Score', formats['input_label'])
+                score = risk_score.get('overall_risk_score', 0)
+                category = risk_score.get('risk_category', 'Unknown')
+                
+                # Color code based on risk level
+                if category == 'Low':
+                    score_format = workbook.add_format({'num_format': '0.0', 'bold': True, 'bg_color': '#C6EFCE'})
+                elif category == 'Medium':
+                    score_format = workbook.add_format({'num_format': '0.0', 'bold': True, 'bg_color': '#FFEB9C'})
+                else:  # High
+                    score_format = workbook.add_format({'num_format': '0.0', 'bold': True, 'bg_color': '#FFC7CE'})
+                
+                worksheet.write(row, 1, score, score_format)
+                worksheet.write(row, 2, f'({category} Risk)', formats['text'])
+                row += 1
+                
+                # Component risk scores
+                worksheet.write(row, 0, '  Financial Risk', formats['text'])
+                worksheet.write(row, 1, risk_score.get('financial_risk', 0), formats['number'])
+                row += 1
+                
+                worksheet.write(row, 0, '  Volume Risk', formats['text'])
+                worksheet.write(row, 1, risk_score.get('volume_risk', 0), formats['number'])
+                row += 1
+                
+                worksheet.write(row, 0, '  Price Risk', formats['text'])
+                worksheet.write(row, 1, risk_score.get('price_risk', 0), formats['number'])
+                row += 1
+                
+                worksheet.write(row, 0, '  Operational Risk', formats['text'])
+                worksheet.write(row, 1, risk_score.get('operational_risk', 0), formats['number'])
+                row += 1
+            
+            # Risk Flags
+            if risk_flags is not None:
+                row += 1
+                risk_level = risk_flags.get('risk_level', 'unknown')
+                risk_level_format = workbook.add_format({'bold': True})
+                
+                if risk_level == 'red':
+                    risk_level_format.set_bg_color('#FFC7CE')
+                    risk_level_text = '🔴 HIGH RISK'
+                elif risk_level == 'yellow':
+                    risk_level_format.set_bg_color('#FFEB9C')
+                    risk_level_text = '🟡 MEDIUM RISK'
+                else:
+                    risk_level_format.set_bg_color('#C6EFCE')
+                    risk_level_text = '🟢 LOW RISK'
+                
+                worksheet.write(row, 0, 'Risk Level', formats['input_label'])
+                worksheet.write(row, 1, risk_level_text, risk_level_format)
+                row += 1
+                
+                # Flag counts
+                flag_counts = risk_flags.get('flag_count', {})
+                worksheet.write(row, 0, '  Red Flags', formats['text'])
+                worksheet.write(row, 1, flag_counts.get('red', 0), formats['number'])
+                row += 1
+                
+                worksheet.write(row, 0, '  Yellow Flags', formats['text'])
+                worksheet.write(row, 1, flag_counts.get('yellow', 0), formats['number'])
+                row += 1
+                
+                # List ALL flags with descriptions
+                red_flags = risk_flags.get('red_flags', [])
+                yellow_flags = risk_flags.get('yellow_flags', [])
+                green_flags = risk_flags.get('green_flags', [])
+                
+                if red_flags:
+                    row += 1
+                    worksheet.write(row, 0, '🚨 Critical Risks (Red Flags):', formats['subtitle'])
+                    row += 1
+                    for i, flag in enumerate(red_flags, 1):
+                        worksheet.write(row, 0, f'{i}. {flag}', formats['text'])
+                        row += 1
+                
+                if yellow_flags:
+                    row += 1
+                    worksheet.write(row, 0, '⚠️  Warnings (Yellow Flags):', formats['subtitle'])
+                    row += 1
+                    for i, flag in enumerate(yellow_flags, 1):
+                        worksheet.write(row, 0, f'{i}. {flag}', formats['text'])
+                        row += 1
+                
+                if green_flags and (not red_flags and not yellow_flags):
+                    row += 1
+                    worksheet.write(row, 0, '✅ Positive Indicators:', formats['subtitle'])
+                    row += 1
+                    for i, flag in enumerate(green_flags, 1):
+                        worksheet.write(row, 0, f'{i}. {flag}', formats['text'])
+                        row += 1
+        
+        # Breakeven Analysis Section
+        if breakeven_results is not None:
+            row += 1
+            worksheet.write(row, 0, 'Breakeven Analysis', formats['subtitle'])
+            row += 1
+            
+            # Breakeven Price
+            if 'breakeven_price' in breakeven_results:
+                be_price = breakeven_results['breakeven_price']
+                if be_price and 'breakeven_price' in be_price and not pd.isna(be_price.get('breakeven_price')):
+                    worksheet.write(row, 0, 'Breakeven Carbon Price', formats['input_label'])
+                    worksheet.write(row, 1, be_price['breakeven_price'], formats['bold_currency'])
+                    if 'base_price' in be_price:
+                        multiplier = be_price.get('price_multiplier', 1.0)
+                        worksheet.write(row, 2, f'({multiplier:.2f}x base price)', formats['text'])
+                    row += 1
+            
+            # Breakeven Volume
+            if 'breakeven_volume' in breakeven_results:
+                be_volume = breakeven_results['breakeven_volume']
+                if be_volume and 'breakeven_volume_multiplier' in be_volume and not pd.isna(be_volume.get('breakeven_volume_multiplier')):
+                    worksheet.write(row, 0, 'Breakeven Volume Multiplier', formats['input_label'])
+                    worksheet.write(row, 1, be_volume['breakeven_volume_multiplier'], formats['bold_percent'])
+                    row += 1
+            
+            # Breakeven Streaming
+            if 'breakeven_streaming' in breakeven_results:
+                be_streaming = breakeven_results['breakeven_streaming']
+                if be_streaming and 'breakeven_streaming' in be_streaming and not pd.isna(be_streaming.get('breakeven_streaming')):
+                    worksheet.write(row, 0, 'Breakeven Streaming %', formats['input_label'])
+                    worksheet.write(row, 1, be_streaming['breakeven_streaming'], formats['bold_percent'])
+                    row += 1
         
         # Auto-adjust column widths
         worksheet.set_column(0, 0, 35)
