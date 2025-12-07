@@ -7,10 +7,9 @@ This script demonstrates and tests the GBM price simulation functionality.
 
 import sys
 import os
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, parent_dir)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import modules directly
 from data.loader import DataLoader
 from core.dcf import DCFCalculator
 from core.irr import IRRCalculator
@@ -18,7 +17,6 @@ from analysis.monte_carlo import MonteCarloSimulator
 from analysis.gbm_simulator import GBMPriceSimulator
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 
 
 def test_gbm_basic():
