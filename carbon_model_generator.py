@@ -1035,8 +1035,19 @@ class CarbonModelGenerator:
             'wacc': self._wacc,
             'rubicon_investment_total': self._rubicon_investment_total,
             'investment_tenor': self._investment_tenor,
-            'streaming_percentage_initial': self._streaming_percentage_initial
+            'streaming_percentage_initial': self._streaming_percentage_initial,
+            'price_growth_base': self._price_growth_base,
+            'price_growth_std_dev': self._price_growth_std_dev,
+            'volume_multiplier_base': self._volume_multiplier_base,
+            'volume_std_dev': self._volume_std_dev
         }
+        
+        # Add GBM parameters if Monte Carlo was run
+        if self.monte_carlo_results:
+            assumptions['use_gbm'] = self.monte_carlo_results.get('use_gbm', False)
+            assumptions['gbm_drift'] = self.monte_carlo_results.get('gbm_drift')
+            assumptions['gbm_volatility'] = self.monte_carlo_results.get('gbm_volatility')
+            assumptions['simulations'] = len(self.monte_carlo_results.get('irr_series', []))
         
         # Determine target streaming and IRR
         target_streaming = (

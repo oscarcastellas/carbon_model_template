@@ -238,19 +238,42 @@ class ExcelExporter:
                 'Price Growth Base (Mean)',
                 'Price Growth Std Dev',
                 'Volume Multiplier Base (Mean)',
-                'Volume Std Dev'
+                'Volume Std Dev',
+                'Use GBM Method',
+                'GBM Drift (μ)',
+                'GBM Volatility (σ)',
+                'Number of Simulations'
             ]
             
             mc_values = [
                 assumptions.get('price_growth_base', 0),
                 assumptions.get('price_growth_std_dev', 0),
                 assumptions.get('volume_multiplier_base', 1.0),
-                assumptions.get('volume_std_dev', 0)
+                assumptions.get('volume_std_dev', 0),
+                assumptions.get('use_gbm', False),
+                assumptions.get('gbm_drift', 0),
+                assumptions.get('gbm_volatility', 0),
+                assumptions.get('simulations', 5000)
             ]
             
-            for label, value in zip(mc_labels, mc_values):
+            for i, (label, value) in enumerate(zip(mc_labels, mc_values)):
                 worksheet.write(row, 0, label, formats['input_label'])
-                worksheet.write(row, 1, value, formats['input_value'])
+                if i == 4:  # Use GBM - boolean
+                    worksheet.write(row, 1, 'Yes' if value else 'No', formats['input_value'])
+                elif i == 7:  # Simulations - number
+                    worksheet.write(row, 1, int(value) if value else 5000, formats['number'])
+                elif i in [5, 6]:  # GBM parameters - percent
+                    if value:
+                        worksheet.write(row, 1, value, formats['percent'])
+                    else:
+                        worksheet.write(row, 1, 'N/A', formats['text'])
+                elif i in [0, 1]:  # Price growth - percent
+                    worksheet.write(row, 1, value, formats['percent'])
+                else:  # Volume - number or percent
+                    if i == 2:  # Multiplier
+                        worksheet.write(row, 1, value, formats['number_2dec'])
+                    else:  # Std dev
+                        worksheet.write(row, 1, value, formats['percent'])
                 row += 1
         
         # Auto-adjust column widths
@@ -263,9 +286,17 @@ class ExcelExporter:
         worksheet: xlsxwriter.Workbook.worksheet_class,
         formats: Dict,
         valuation_schedule: pd.DataFrame,
-        inputs_sheet: xlsxwriter.Workbook.worksheet_class
+        inputs_sheet: xlsxwriter.Workbook.worksheet_class,
+        start_year: int = 2025
     ) -> None:
-        """Write Valuation Schedule with formulas linking to inputs."""
+        """
+        Write Valuation Schedule in best-practice format: years horizontally, line items vertically.
+        
+        Parameters:
+        -----------
+        start_year : int
+            Starting year for the model (default: 2025)
+        """
         row = 0
         
         # Title
@@ -278,120 +309,214 @@ class ExcelExporter:
         tenor_cell = f"'{inputs_sheet.name}'!$B$5"
         streaming_cell = f"'{inputs_sheet.name}'!$B$6"
         
-        # Headers
-        headers = [
-            'Year',
-            'Carbon Credits Gross',
-            'Rubicon Share of Credits',
-            'Base Carbon Price',
-            'Rubicon Revenue',
-            'Project Implementation Costs',
-            'Rubicon Investment Drawdown',
-            'Rubicon Net Cash Flow',
-            'Discount Factor',
-            'Present Value',
-            'Cumulative Cash Flow',
-            'Cumulative PV'
-        ]
+        # Column A: Line item labels
+        col_label = 0
         
-        for col, header in enumerate(headers):
-            worksheet.write(row, col, header, formats['header'])
+        # Column B onwards: Years (2025, 2026, ..., 2044)
+        year_start_col = 1
+        
+        # Write year headers horizontally
+        header_row = row
+        years = [start_year + i for i in range(20)]
+        for col_idx, year in enumerate(years):
+            col = year_start_col + col_idx
+            worksheet.write(header_row, col, year, formats['header'])
+        
+        # Add "Total" column at the end
+        total_col = year_start_col + 20
+        worksheet.write(header_row, total_col, 'Total', formats['header'])
+        
         row += 1
         
-        # Write data with formulas
-        data_start_row = row  # Remember where data starts
-        for year_idx, year in enumerate(valuation_schedule.index):
-            current_row = row + year_idx
+        # Define line items (in order they should appear)
+        line_items = [
+            {
+                'label': 'Carbon Credits Gross',
+                'type': 'data',
+                'data_col': 'carbon_credits_gross',
+                'format': 'number',
+                'include_total': True
+            },
+            {
+                'label': 'Rubicon Share of Credits',
+                'type': 'formula',
+                'formula_base': 'credits_share',
+                'format': 'number',
+                'include_total': True
+            },
+            {
+                'label': 'Base Carbon Price',
+                'type': 'data',
+                'data_col': 'base_carbon_price',
+                'format': 'currency',
+                'include_total': False
+            },
+            {
+                'label': 'Rubicon Revenue',
+                'type': 'formula',
+                'formula_base': 'revenue',
+                'format': 'currency',
+                'include_total': True
+            },
+            {
+                'label': 'Project Implementation Costs',
+                'type': 'data',
+                'data_col': 'project_implementation_costs',
+                'format': 'currency',
+                'include_total': True
+            },
+            {
+                'label': 'Rubicon Investment Drawdown',
+                'type': 'formula',
+                'formula_base': 'investment',
+                'format': 'currency',
+                'include_total': True
+            },
+            {
+                'label': 'Rubicon Net Cash Flow',
+                'type': 'formula',
+                'formula_base': 'net_cf',
+                'format': 'currency',
+                'include_total': True
+            },
+            {
+                'label': 'Discount Factor',
+                'type': 'formula',
+                'formula_base': 'discount',
+                'format': 'number',
+                'include_total': False
+            },
+            {
+                'label': 'Present Value',
+                'type': 'formula',
+                'formula_base': 'pv',
+                'format': 'currency',
+                'include_total': True
+            },
+            {
+                'label': 'Cumulative Cash Flow',
+                'type': 'formula',
+                'formula_base': 'cum_cf',
+                'format': 'currency',
+                'include_total': False
+            },
+            {
+                'label': 'Cumulative PV',
+                'type': 'formula',
+                'formula_base': 'cum_pv',
+                'format': 'currency',
+                'include_total': False
+            }
+        ]
+        
+        # Track row positions for formula references
+        row_positions = {}
+        
+        # Write each line item
+        for item_idx, item in enumerate(line_items):
+            current_row = row + item_idx
             excel_row = current_row + 1  # Excel is 1-based
             
-            col = 0
+            # Write label in column A
+            worksheet.write(current_row, col_label, item['label'], formats['input_label'])
             
-            # Year
-            worksheet.write(current_row, col, year, formats['number'])
-            col += 1
+            # Store row position for this line item
+            row_positions[item['formula_base'] if item['type'] == 'formula' else item['data_col']] = excel_row
             
-            # Carbon Credits Gross (from data - input value)
-            worksheet.write(current_row, col, valuation_schedule.loc[year, 'carbon_credits_gross'], formats['number'])
-            col += 1
+            # Write data/formulas for each year
+            for year_idx, year in enumerate(valuation_schedule.index):
+                col = year_start_col + year_idx
+                excel_col_letter = xlsxwriter.utility.xl_col_to_name(col)
+                
+                if item['type'] == 'data':
+                    # Write data value
+                    value = valuation_schedule.loc[year, item['data_col']]
+                    if item['format'] == 'currency':
+                        worksheet.write(current_row, col, value, formats['currency_2dec'])
+                    else:
+                        worksheet.write(current_row, col, value, formats['number'])
+                
+                elif item['type'] == 'formula':
+                    # Write formula based on type
+                    if item['formula_base'] == 'credits_share':
+                        # Rubicon Share = Credits Gross * Streaming %
+                        credits_row = row_positions['carbon_credits_gross']
+                        formula = f"={xlsxwriter.utility.xl_col_to_name(col)}{credits_row}*{streaming_cell}"
+                        worksheet.write_formula(current_row, col, formula, formats['number_formula'])
+                    
+                    elif item['formula_base'] == 'revenue':
+                        # Revenue = Share of Credits * Price
+                        share_row = row_positions['credits_share']
+                        price_row = row_positions['base_carbon_price']
+                        formula = f"={xlsxwriter.utility.xl_col_to_name(col)}{share_row}*{xlsxwriter.utility.xl_col_to_name(col)}{price_row}"
+                        worksheet.write_formula(current_row, col, formula, formats['currency_formula'])
+                    
+                    elif item['formula_base'] == 'investment':
+                        # Investment = -Investment/Tenor if Year <= Tenor, else 0
+                        # Year is in header, so we use year_idx + 1 (Year 1, 2, ...)
+                        year_num = year_idx + 1
+                        formula = f"=IF({year_num}<={tenor_cell},-{investment_cell}/{tenor_cell},0)"
+                        worksheet.write_formula(current_row, col, formula, formats['currency_formula'])
+                    
+                    elif item['formula_base'] == 'net_cf':
+                        # Net CF = Revenue + Investment
+                        revenue_row = row_positions['revenue']
+                        investment_row = row_positions['investment']
+                        formula = f"={xlsxwriter.utility.xl_col_to_name(col)}{revenue_row}+{xlsxwriter.utility.xl_col_to_name(col)}{investment_row}"
+                        worksheet.write_formula(current_row, col, formula, formats['currency_formula'])
+                    
+                    elif item['formula_base'] == 'discount':
+                        # Discount Factor = 1 / (1 + WACC)^(Year - 1)
+                        year_num = year_idx + 1
+                        formula = f"=1/((1+{wacc_cell})^({year_num}-1))"
+                        worksheet.write_formula(current_row, col, formula, formats['number_formula'])
+                    
+                    elif item['formula_base'] == 'pv':
+                        # PV = Net CF * Discount Factor
+                        net_cf_row = row_positions['net_cf']
+                        discount_row = row_positions['discount']
+                        formula = f"={xlsxwriter.utility.xl_col_to_name(col)}{net_cf_row}*{xlsxwriter.utility.xl_col_to_name(col)}{discount_row}"
+                        worksheet.write_formula(current_row, col, formula, formats['currency_formula'])
+                    
+                    elif item['formula_base'] == 'cum_cf':
+                        # Cumulative CF = Previous + Current
+                        net_cf_row = row_positions['net_cf']
+                        if year_idx == 0:
+                            formula = f"={xlsxwriter.utility.xl_col_to_name(col)}{net_cf_row}"
+                        else:
+                            prev_col = xlsxwriter.utility.xl_col_to_name(col - 1)
+                            formula = f"={prev_col}{excel_row}+{xlsxwriter.utility.xl_col_to_name(col)}{net_cf_row}"
+                        worksheet.write_formula(current_row, col, formula, formats['currency_formula'])
+                    
+                    elif item['formula_base'] == 'cum_pv':
+                        # Cumulative PV = Previous + Current PV
+                        pv_row = row_positions['pv']
+                        if year_idx == 0:
+                            formula = f"={xlsxwriter.utility.xl_col_to_name(col)}{pv_row}"
+                        else:
+                            prev_col = xlsxwriter.utility.xl_col_to_name(col - 1)
+                            formula = f"={prev_col}{excel_row}+{xlsxwriter.utility.xl_col_to_name(col)}{pv_row}"
+                        worksheet.write_formula(current_row, col, formula, formats['currency_formula'])
             
-            # Rubicon Share of Credits = Credits * Streaming Percentage
-            share_formula = f"=B{excel_row}*{streaming_cell}"
-            worksheet.write_formula(current_row, col, share_formula, formats['number_formula'])
-            col += 1
-            
-            # Base Carbon Price (from data - input value)
-            worksheet.write(current_row, col, valuation_schedule.loc[year, 'base_carbon_price'], formats['currency_2dec'])
-            col += 1
-            
-            # Rubicon Revenue = Share of Credits * Price
-            revenue_formula = f"=C{excel_row}*D{excel_row}"
-            worksheet.write_formula(current_row, col, revenue_formula, formats['currency_formula'])
-            col += 1
-            
-            # Project Implementation Costs (from data - input value)
-            worksheet.write(current_row, col, valuation_schedule.loc[year, 'project_implementation_costs'], formats['currency_2dec'])
-            col += 1
-            
-            # Rubicon Investment Drawdown
-            # = -Investment/Tenor if Year <= Tenor, else 0
-            investment_formula = f"=IF(A{excel_row}<={tenor_cell},-{investment_cell}/{tenor_cell},0)"
-            worksheet.write_formula(current_row, col, investment_formula, formats['currency_formula'])
-            col += 1
-            
-            # Rubicon Net Cash Flow = Revenue + Investment Drawdown
-            net_cf_formula = f"=E{excel_row}+G{excel_row}"
-            worksheet.write_formula(current_row, col, net_cf_formula, formats['currency_formula'])
-            col += 1
-            
-            # Discount Factor = 1 / (1 + WACC)^(Year - 1)
-            discount_formula = f"=1/((1+{wacc_cell})^(A{excel_row}-1))"
-            worksheet.write_formula(current_row, col, discount_formula, formats['number_formula'])
-            col += 1
-            
-            # Present Value = Net Cash Flow * Discount Factor
-            pv_formula = f"=H{excel_row}*I{excel_row}"
-            worksheet.write_formula(current_row, col, pv_formula, formats['currency_formula'])
-            col += 1
-            
-            # Cumulative Cash Flow
-            if year_idx == 0:
-                cum_cf_formula = f"=H{excel_row}"
-            else:
-                prev_excel_row = excel_row - 1
-                cum_cf_formula = f"=K{prev_excel_row}+H{excel_row}"
-            worksheet.write_formula(current_row, col, cum_cf_formula, formats['currency_formula'])
-            col += 1
-            
-            # Cumulative PV
-            if year_idx == 0:
-                cum_pv_formula = f"=J{excel_row}"
-            else:
-                prev_excel_row = excel_row - 1
-                cum_pv_formula = f"=L{prev_excel_row}+J{excel_row}"
-            worksheet.write_formula(current_row, col, cum_pv_formula, formats['currency_formula'])
+            # Write total formula if needed
+            if item['include_total']:
+                first_year_col = xlsxwriter.utility.xl_col_to_name(year_start_col)
+                last_year_col = xlsxwriter.utility.xl_col_to_name(year_start_col + 19)
+                sum_formula = f"=SUM({first_year_col}{excel_row}:{last_year_col}{excel_row})"
+                
+                if item['format'] == 'currency':
+                    worksheet.write_formula(current_row, total_col, sum_formula, formats['bold_currency'])
+                else:
+                    worksheet.write_formula(current_row, total_col, sum_formula, formats['bold'])
         
-        # Totals row
-        totals_row = row + 20
-        totals_excel_row = totals_row + 1
-        worksheet.write(totals_row, 0, 'Total', formats['bold'])
+        # Add separator row before totals (optional - can add blank row)
+        row += len(line_items)
         
-        # Sum formulas for totals
-        first_data_row = data_start_row + 1  # Excel row number
-        last_data_row = data_start_row + 20  # Excel row number
-        
-        for col_idx, header in enumerate(headers[1:], start=1):
-            first_cell = xlsxwriter.utility.xl_rowcol_to_cell(data_start_row, col_idx)
-            last_cell = xlsxwriter.utility.xl_rowcol_to_cell(data_start_row + 19, col_idx)
-            sum_formula = f"=SUM({first_cell}:{last_cell})"
-            
-            if col_idx in [4, 6, 7, 9]:  # Revenue, Investment, Net CF, PV (columns E, G, H, J)
-                worksheet.write_formula(totals_row, col_idx, sum_formula, formats['bold_currency'])
-            else:
-                worksheet.write_formula(totals_row, col_idx, sum_formula, formats['bold'])
-        
-        # Auto-adjust column widths
-        for i, header in enumerate(headers):
-            worksheet.set_column(i, i, max(len(header) + 2, 15))
+        # Set column widths
+        worksheet.set_column(col_label, col_label, 35)  # Label column
+        for i in range(20):
+            worksheet.set_column(year_start_col + i, year_start_col + i, 12)  # Year columns
+        worksheet.set_column(total_col, total_col, 15)  # Total column
     
     def _write_summary_results_sheet(
         self,
@@ -419,16 +544,16 @@ class ExcelExporter:
         row += 1
         
         # NPV (sum of all PVs from Valuation Schedule)
-        # PV column is column J (index 9), data starts at row 3 (0-indexed row 2)
+        # PV is row 11 (0-indexed), Excel row 12, years are columns B-U (2025-2044)
         worksheet.write(row, 0, 'Net Present Value (NPV)', formats['input_label'])
-        npv_formula = "=SUM('Valuation Schedule'!J3:J22)"
+        npv_formula = "=SUM('Valuation Schedule'!B12:U12)"
         worksheet.write_formula(row, 1, npv_formula, formats['bold_currency'])
         row += 1
         
         # IRR (calculated using Excel IRR function on cash flows)
         worksheet.write(row, 0, 'Internal Rate of Return (IRR)', formats['input_label'])
-        # Use Excel's IRR function on the Net Cash Flow column (column H)
-        irr_formula = "=IRR('Valuation Schedule'!H3:H22)"
+        # Use Excel's IRR function on the Net Cash Flow row (row 9, Excel row 10, columns B-U)
+        irr_formula = "=IRR('Valuation Schedule'!B10:U10)"
         worksheet.write_formula(row, 1, irr_formula, formats['bold_percent'])
         worksheet.write(row, 2, f'(Python calculated: {actual_irr:.2%})', formats['text'])
         row += 1
@@ -437,8 +562,8 @@ class ExcelExporter:
         if payback_period is not None:
             worksheet.write(row, 0, 'Payback Period (Years)', formats['input_label'])
             # Payback is calculated by finding first positive cumulative CF
-            # Formula: Find year where cumulative CF becomes positive
-            payback_formula = "=MATCH(0,'Valuation Schedule'!K3:K22,1)+1"
+            # Formula: Find column where cumulative CF becomes positive (row 12, Excel row 13, columns B-U)
+            payback_formula = "=MATCH(0,'Valuation Schedule'!B13:U13,1)"
             worksheet.write_formula(row, 1, payback_formula, formats['bold'])
             worksheet.write(row, 2, f'(Actual: {payback_period:.2f} years)', formats['text'])
             row += 1
@@ -678,6 +803,31 @@ class ExcelExporter:
         row = 0
         
         worksheet.write(row, 0, 'Monte Carlo Simulation Results', formats['title'])
+        row += 1
+        
+        # Show which method was used
+        method_used = monte_carlo_results.get('method_used', 'Growth-Rate Based')
+        method_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D9E1F2',
+            'border': 1
+        })
+        worksheet.write(row, 0, 'Simulation Method:', formats['input_label'])
+        worksheet.write(row, 1, method_used, method_format)
+        
+        # Show GBM parameters if used
+        if monte_carlo_results.get('use_gbm', False):
+            row += 1
+            worksheet.write(row, 0, 'GBM Drift (μ):', formats['text'])
+            gbm_drift = monte_carlo_results.get('gbm_drift')
+            if gbm_drift is not None:
+                worksheet.write(row, 1, gbm_drift, formats['percent'])
+            row += 1
+            worksheet.write(row, 0, 'GBM Volatility (σ):', formats['text'])
+            gbm_vol = monte_carlo_results.get('gbm_volatility')
+            if gbm_vol is not None:
+                worksheet.write(row, 1, gbm_vol, formats['percent'])
+        
         row += 2
         
         # Summary Statistics

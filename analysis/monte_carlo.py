@@ -413,7 +413,11 @@ class MonteCarloSimulator:
             'mc_std_irr': float(np.std(irr_valid)) if len(irr_valid) > 0 else np.nan,
             'mc_std_npv': float(np.std(npv_valid)) if len(npv_valid) > 0 else np.nan,
             'simulations': simulations,
-            'valid_simulations': len(irr_valid)
+            'valid_simulations': len(irr_valid),
+            'method_used': 'GBM (Geometric Brownian Motion)' if use_gbm else 'Growth-Rate Based',
+            'use_gbm': use_gbm,
+            'gbm_drift': gbm_drift if use_gbm else None,
+            'gbm_volatility': gbm_volatility if use_gbm else None
         }
         
         return results
