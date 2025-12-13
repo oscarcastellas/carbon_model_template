@@ -45,12 +45,15 @@ class ExcelExporter:
         monte_carlo_results: Optional[Dict] = None,
         risk_flags: Optional[Dict] = None,
         risk_score: Optional[Dict] = None,
-        breakeven_results: Optional[Dict] = None
+        breakeven_results: Optional[Dict] = None,
+        deal_valuation_results: Optional[Dict] = None,
+        use_template: bool = True
     ) -> None:
         """
         Export complete model to formula-based Excel file.
         
         Creates comprehensive sheets with all calculations as formulas.
+        If use_template=True, uses master template with interactive modules.
         
         Parameters:
         -----------
@@ -72,7 +75,36 @@ class ExcelExporter:
             Calculated payback period
         monte_carlo_results : Dict, optional
             Monte Carlo simulation results
+        use_template : bool, optional
+            If True, use master template with interactive modules (default: True)
         """
+        # Try template-based export first (if enabled and template exists)
+        if use_template:
+            try:
+                from .template_based_export import TemplateBasedExporter
+                template_exporter = TemplateBasedExporter()
+                if template_exporter.export_with_template(
+                    filename=filename,
+                    assumptions=assumptions,
+                    target_streaming_percentage=target_streaming_percentage,
+                    target_irr=target_irr,
+                    actual_irr=actual_irr,
+                    valuation_schedule=valuation_schedule,
+                    sensitivity_table=sensitivity_table,
+                    payback_period=payback_period,
+                    monte_carlo_results=monte_carlo_results,
+                    risk_flags=risk_flags,
+                    risk_score=risk_score,
+                    breakeven_results=breakeven_results,
+                    deal_valuation_results=deal_valuation_results
+                ):
+                    # Template export successful!
+                    return
+            except Exception as e:
+                print(f"Template export failed: {e}")
+                print("Falling back to standard export...")
+        
+        # Standard export (fallback or if use_template=False)
         # Create workbook with NaN/INF handling
         workbook = xlsxwriter.Workbook(filename, {'nan_inf_to_errors': True})
         
@@ -113,6 +145,62 @@ class ExcelExporter:
             self._write_monte_carlo_sheet(
                 workbook, mc_sheet, formats, monte_carlo_results
             )
+        
+        # Sheet 6: Deal Valuation (Back-Solver Results)
+        if deal_valuation_results is not None:
+            deal_sheet = workbook.add_worksheet('Deal Valuation')
+            self._write_deal_valuation_sheet(
+                workbook, deal_sheet, formats, deal_valuation_results,
+                inputs_sheet, summary_sheet
+            )
+        
+        # Sheet 7: Deal Valuation Interactive (NEW - for running from Excel)
+        try:
+            from .deal_valuation_interactive import InteractiveDealValuationSheet
+            interactive_creator = InteractiveDealValuationSheet(workbook)
+            interactive_sheet = interactive_creator.create_interactive_sheet(
+                base_assumptions=assumptions,
+                sheet_name="Deal Valuation Interactive"
+            )
+        except ImportError:
+            # If module not available, skip interactive sheet
+            pass
+        
+        # Sheet 8: Sensitivity Analysis Interactive (NEW - for running from Excel)
+        try:
+            from .sensitivity_interactive import InteractiveSensitivitySheet
+            sensitivity_creator = InteractiveSensitivitySheet(workbook)
+            sensitivity_sheet = sensitivity_creator.create_interactive_sheet(
+                base_assumptions=assumptions,
+                sheet_name="Sensitivity Interactive"
+            )
+        except ImportError:
+            # If module not available, skip interactive sheet
+            pass
+        
+        # Sheet 9: Monte Carlo Interactive (NEW - for running from Excel)
+        try:
+            from .monte_carlo_interactive import InteractiveMonteCarloSheet
+            mc_creator = InteractiveMonteCarloSheet(workbook)
+            mc_sheet = mc_creator.create_interactive_sheet(
+                base_assumptions=assumptions,
+                sheet_name="Monte Carlo Interactive"
+            )
+        except ImportError:
+            # If module not available, skip interactive sheet
+            pass
+        
+        # Sheet 10: Breakeven Interactive (NEW - for running from Excel)
+        try:
+            from .breakeven_interactive import InteractiveBreakevenSheet
+            breakeven_creator = InteractiveBreakevenSheet(workbook)
+            breakeven_sheet = breakeven_creator.create_interactive_sheet(
+                base_assumptions=assumptions,
+                sheet_name="Breakeven Interactive"
+            )
+        except ImportError:
+            # If module not available, skip interactive sheet
+            pass
         
         # Close workbook
         workbook.close()
@@ -466,7 +554,7 @@ class ExcelExporter:
                         worksheet.write_formula(current_row, col, formula, formats['currency_formula'])
                     
                     elif item['formula_base'] == 'discount':
-                        # Discount Factor = 1 / (1 + WACC)^(Year - 1)
+            # Discount Factor = 1 / (1 + WACC)^(Year - 1)
                         year_num = year_idx + 1
                         formula = f"=1/((1+{wacc_cell})^({year_num}-1))"
                         worksheet.write_formula(current_row, col, formula, formats['number_formula'])
@@ -506,7 +594,7 @@ class ExcelExporter:
                 
                 if item['format'] == 'currency':
                     worksheet.write_formula(current_row, total_col, sum_formula, formats['bold_currency'])
-                else:
+            else:
                     worksheet.write_formula(current_row, total_col, sum_formula, formats['bold'])
         
         # Add separator row before totals (optional - can add blank row)
@@ -1039,3 +1127,136 @@ class ExcelExporter:
         worksheet.set_column(0, 0, 18)
         worksheet.set_column(1, 1, 15)
         worksheet.set_column(2, 2, 20)
+    
+    def _write_deal_valuation_sheet(
+        self,
+        workbook: xlsxwriter.Workbook,
+        sheet,
+        formats: Dict,
+        deal_valuation_results: Dict,
+        inputs_sheet,
+        summary_sheet
+    ) -> None:
+        """
+        Write Deal Valuation sheet with back-solver results.
+        
+        Creates interactive what-if analysis:
+        - Shows solved purchase price given target IRR
+        - Shows calculated IRR from purchase price
+        - Shows required streaming % given price + IRR
+        """
+        row = 0
+        
+        # Header
+        sheet.write(row, 0, 'Deal Valuation Analysis', formats['header'])
+        sheet.merge_range(row, 0, row, 3, 'Deal Valuation Analysis', formats['header'])
+        row += 2
+        
+        # Determine which solve method was used
+        if 'purchase_price' in deal_valuation_results and 'target_irr' in deal_valuation_results:
+            # Solve for Purchase Price
+            section_header = formats.get('section_header', formats.get('subtitle', formats['header']))
+            label_format = formats.get('label', formats.get('input_label', formats['text']))
+            sheet.write(row, 0, 'Solve for Purchase Price', section_header)
+            row += 1
+            
+            sheet.write(row, 0, 'Target IRR:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('target_irr', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'Streaming Percentage:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('streaming_percentage', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'Maximum Purchase Price:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('purchase_price', 0), formats['currency_2dec'])
+            row += 1
+            
+            sheet.write(row, 0, 'Actual IRR Achieved:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('actual_irr', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'Difference:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('difference', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'NPV at Calculated Price:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('npv', 0), formats['currency_2dec'])
+            row += 2
+        
+        elif 'purchase_price' in deal_valuation_results and 'irr' in deal_valuation_results:
+            # Calculate IRR from Price
+            section_header = formats.get('section_header', formats.get('subtitle', formats['header']))
+            label_format = formats.get('label', formats.get('input_label', formats['text']))
+            sheet.write(row, 0, 'Calculate IRR from Purchase Price', section_header)
+            row += 1
+            
+            sheet.write(row, 0, 'Purchase Price:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('purchase_price', 0), formats['currency_2dec'])
+            row += 1
+            
+            sheet.write(row, 0, 'Streaming Percentage:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('streaming_percentage', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'Project IRR:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('irr', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'NPV:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('npv', 0), formats['currency_2dec'])
+            row += 2
+        
+        elif 'streaming_percentage' in deal_valuation_results and 'target_irr' in deal_valuation_results:
+            # Solve for Streaming % given Price + IRR
+            section_header = formats.get('section_header', formats.get('subtitle', formats['header']))
+            label_format = formats.get('label', formats.get('input_label', formats['text']))
+            sheet.write(row, 0, 'Solve for Streaming Percentage', section_header)
+            row += 1
+            
+            sheet.write(row, 0, 'Purchase Price:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('purchase_price', 0), formats['currency_2dec'])
+            row += 1
+            
+            sheet.write(row, 0, 'Target IRR:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('target_irr', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'Required Streaming Percentage:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('streaming_percentage', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'Actual IRR Achieved:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('actual_irr', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'Difference:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('difference', 0), formats['percent'])
+            row += 1
+            
+            sheet.write(row, 0, 'NPV:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('npv', 0), formats['currency_2dec'])
+            row += 2
+        
+        # Investment Tenor
+        if 'investment_tenor' in deal_valuation_results:
+            label_format = formats.get('label', formats.get('input_label', formats['text']))
+            sheet.write(row, 0, 'Investment Tenor:', label_format)
+            sheet.write(row, 1, deal_valuation_results.get('investment_tenor', 0), formats['number'])
+            row += 1
+        
+        # Note
+        row += 1
+        label_format = formats.get('label', formats.get('input_label', formats['text']))
+        note_format = formats.get('note', formats.get('text', formats['number']))
+        sheet.write(row, 0, 'Note:', label_format)
+        sheet.write(row, 1, 'These results are calculated using the back-solver module.', note_format)
+        sheet.write(row + 1, 1, 'To re-run analysis, use the Python API methods:', note_format)
+        sheet.write(row + 2, 1, '- solve_for_purchase_price(target_irr, streaming_percentage)', note_format)
+        sheet.write(row + 3, 1, '- solve_for_project_irr(purchase_price, streaming_percentage)', note_format)
+        sheet.write(row + 4, 1, '- solve_for_streaming_given_price(purchase_price, target_irr)', note_format)
+        
+        # Set column widths
+        sheet.set_column(0, 0, 30)
+        sheet.set_column(1, 1, 20)
+        sheet.set_column(2, 3, 15)

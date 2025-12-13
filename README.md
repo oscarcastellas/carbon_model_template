@@ -8,6 +8,7 @@ A comprehensive, production-ready Python framework for rapid DCF (Discounted Cas
 
 ## 🎯 Project Highlights
 
+- **Simple GUI Application**: Professional graphical interface for non-technical users - no Python knowledge required!
 - **Formula-Based Excel Output**: Every calculation is an Excel formula, ensuring full transparency and auditability for external review
 - **Monte Carlo Simulation**: Dual-variable stochastic modeling with GBM (Geometric Brownian Motion) support and histogram visualizations
 - **Advanced Risk Analysis**: Automated risk flagging, scoring, and breakeven analysis
@@ -47,7 +48,47 @@ A comprehensive, production-ready Python framework for rapid DCF (Discounted Cas
 
 ## 🚀 Quick Start
 
-### Installation
+### **Option 1: GUI Application (Recommended for Non-Technical Users)**
+
+**For Colleagues:**
+1. Download the portable zip package
+2. Extract and double-click `Carbon Model Tool.exe`
+3. Select your Excel data file
+4. Click "Run Analysis"
+5. View results in Excel with auto-populated data and charts!
+
+**For Developers:**
+```bash
+# Test GUI locally
+python3 gui/run_gui.py
+
+# Create package for distribution
+python3 package_gui.py
+```
+
+**Advanced Analysis Workflow:**
+After the GUI generates the Excel file:
+1. Open the Excel file
+2. Navigate to analysis sheets (Deal Valuation, Monte Carlo, Sensitivity, Breakeven)
+3. Fill in the input cells with your assumptions
+4. Save the Excel file
+5. Run Python scripts from Terminal:
+   ```bash
+   # Deal Valuation
+   python3 scripts/run_deal_valuation_from_excel.py path/to/your_file.xlsx
+   
+   # Monte Carlo Simulation
+   python3 scripts/run_monte_carlo_from_excel.py path/to/your_file.xlsx
+   
+   # Sensitivity Analysis
+   python3 scripts/run_sensitivity_from_excel.py path/to/your_file.xlsx
+   
+   # Breakeven Analysis
+   python3 scripts/run_breakeven_from_excel.py path/to/your_file.xlsx
+   ```
+6. Results and charts are automatically written to Excel!
+
+### **Option 2: Python API (For Technical Users)**
 
 ```bash
 # Clone the repository
@@ -118,13 +159,25 @@ python3 tests/test_productivity_tools.py
 
 ## 📊 Output
 
-The tool generates a comprehensive Excel file with 5 sheets:
+The tool generates a comprehensive Excel file with 8 sheets:
 
-1. **Inputs & Assumptions** - All model inputs (highlighted for easy modification)
-2. **Valuation Schedule** - 20-year detailed cash flow table with formulas
-3. **Summary & Results** - Key financial metrics, risk assessment, breakeven analysis
-4. **Sensitivity Analysis** - 2D IRR sensitivity table
-5. **Monte Carlo Results** - Full simulation results with histogram charts
+### Presentation Sheets (Auto-populated by GUI)
+1. **Inputs & Assumptions** - All model inputs with professional charts
+2. **Valuation Schedule** - 20-year detailed cash flow table with formulas and visualizations
+3. **Summary & Results** - Key financial metrics, risk assessment, and presentation charts
+4. **Analysis** - Separator sheet for advanced analysis modules
+
+### Analysis Sheets (User-driven workflow)
+5. **Deal Valuation** - Back-solver to find optimal purchase price for target IRR
+6. **Monte Carlo Results** - Stochastic simulation with GBM support and histogram charts
+7. **Sensitivity Analysis** - 2D sensitivity tables for risk assessment
+8. **Breakeven Analysis** - Breakeven calculations for price, volume, and streaming percentage
+
+**Workflow:**
+1. GUI auto-populates sheets 1-3 with data and presentation charts
+2. User fills input cells in analysis sheets (5-8)
+3. User runs Python scripts from Terminal to execute analysis
+4. Python scripts write results and charts directly to Excel
 
 **All calculations are Excel formulas** - no hardcoded values. Change inputs and see results update automatically!
 
@@ -150,7 +203,19 @@ carbon_model_template/
 ├── data/                      # Data handling
 │   └── loader.py              # Data loading
 ├── export/                    # Export & reporting
-│   └── excel.py               # Excel export
+│   ├── excel.py               # Excel export
+│   ├── template_based_export.py  # Template-based export with charts
+│   └── presentation_charts.py    # Chart generation for presentation sheets
+├── excel_integration/         # Excel integration utilities
+│   └── chart_generator.py     # Chart generation for analysis sheets
+├── scripts/                   # Python scripts for Terminal execution
+│   ├── run_deal_valuation_from_excel.py
+│   ├── run_monte_carlo_from_excel.py
+│   ├── run_sensitivity_from_excel.py
+│   └── run_breakeven_from_excel.py
+├── templates/                 # Master template
+│   ├── create_master_template.py
+│   └── master_template_with_interactive_modules.xlsx
 ├── tests/                     # Test scripts
 ├── examples/                  # Example scripts
 └── docs/                      # Documentation
@@ -170,6 +235,7 @@ See `docs/DATA_PRIVACY.md` for details.
 
 - **Getting Started**: See `examples/basic_usage.py`
 - **Project Structure**: See `docs/PROJECT_STRUCTURE.md`
+- **Master Template Workflow**: See `docs/MASTER_TEMPLATE_SIMPLIFIED_WORKFLOW_PLAN.md`
 - **GBM Implementation**: See `docs/GBM_IMPLEMENTATION.md`
 - **Advanced Modules**: See `docs/ADVANCED_MODULES_PLAN.md`
 

@@ -19,6 +19,7 @@ from .analysis.monte_carlo import MonteCarloSimulator
 from .risk.flagger import RiskFlagger
 from .risk.scorer import RiskScoreCalculator
 from .valuation.breakeven import BreakevenCalculator
+from .valuation.deal_valuation import DealValuationSolver
 from .export.excel import ExcelExporter
 
 
@@ -149,6 +150,7 @@ class CarbonModelGenerator:
         self.risk_flags: Optional[Dict] = None
         self.risk_score: Optional[Dict] = None
         self.breakeven_results: Optional[Dict] = None
+        self.deal_valuation_results: Optional[Dict] = None
     
     def _initialize_calculators(self) -> None:
         """Initialize calculator components with current assumptions."""
@@ -673,6 +675,180 @@ class CarbonModelGenerator:
         
         return results
     
+    def solve_for_purchase_price(
+        self,
+        target_irr: float,
+        streaming_percentage: Optional[float] = None,
+        investment_tenor: Optional[int] = None
+    ) -> Dict:
+        """
+        Solve for maximum purchase price given target IRR.
+        
+        This is the inverse of goal-seeking:
+        - Instead of: streaming % → IRR
+        - We solve: price → IRR (where price affects investment_total)
+        
+        Parameters:
+        -----------
+        target_irr : float
+            Target IRR as decimal (e.g., 0.20 for 20%)
+        streaming_percentage : float, optional
+            Streaming percentage (uses initial if not provided)
+        investment_tenor : int, optional
+            Investment tenor (uses current if not provided)
+            
+        Returns:
+        --------
+        dict
+            Results dictionary containing:
+            - 'purchase_price': Maximum purchase price
+            - 'actual_irr': Actual IRR achieved
+            - 'target_irr': Target IRR
+            - 'streaming_percentage': Streaming percentage used
+            - 'npv': NPV at calculated price
+            - 'results_df': Full DCF results
+        """
+        if self.data is None:
+            raise ValueError("Data not loaded. Please call load_data() first.")
+        
+        if streaming_percentage is None:
+            streaming_percentage = self._streaming_percentage_initial
+        
+        if investment_tenor is None:
+            investment_tenor = self._investment_tenor
+        
+        # Initialize solver
+        solver = DealValuationSolver(
+            dcf_calculator=self.dcf_calculator,
+            data=self.data,
+            tolerance=1e-4
+        )
+        
+        # Solve for price
+        results = solver.solve_for_purchase_price(
+            target_irr=target_irr,
+            streaming_percentage=streaming_percentage,
+            investment_tenor=investment_tenor
+        )
+        
+        # Store results
+        self.deal_valuation_results = results
+        
+        return results
+    
+    def solve_for_project_irr(
+        self,
+        purchase_price: float,
+        streaming_percentage: Optional[float] = None,
+        investment_tenor: Optional[int] = None
+    ) -> Dict:
+        """
+        Calculate project IRR given a specific purchase price.
+        
+        Useful for: "If we pay $X, what IRR do we get?"
+        
+        Parameters:
+        -----------
+        purchase_price : float
+            Purchase price in USD
+        streaming_percentage : float, optional
+            Streaming percentage (uses initial if not provided)
+        investment_tenor : int, optional
+            Investment tenor (uses current if not provided)
+            
+        Returns:
+        --------
+        dict
+            Results dictionary containing:
+            - 'purchase_price': Purchase price
+            - 'irr': Project IRR
+            - 'npv': NPV
+            - 'results_df': Full DCF results
+        """
+        if self.data is None:
+            raise ValueError("Data not loaded. Please call load_data() first.")
+        
+        if streaming_percentage is None:
+            streaming_percentage = self._streaming_percentage_initial
+        
+        if investment_tenor is None:
+            investment_tenor = self._investment_tenor
+        
+        # Initialize solver
+        solver = DealValuationSolver(
+            dcf_calculator=self.dcf_calculator,
+            data=self.data,
+            tolerance=1e-4
+        )
+        
+        # Calculate IRR
+        results = solver.solve_for_project_irr(
+            purchase_price=purchase_price,
+            streaming_percentage=streaming_percentage,
+            investment_tenor=investment_tenor
+        )
+        
+        # Store results
+        self.deal_valuation_results = results
+        
+        return results
+    
+    def solve_for_streaming_given_price(
+        self,
+        purchase_price: float,
+        target_irr: float,
+        investment_tenor: Optional[int] = None
+    ) -> Dict:
+        """
+        Solve for streaming percentage given purchase price and target IRR.
+        
+        Useful for: "If we pay $X and want Y% IRR, what streaming % do we need?"
+        
+        Parameters:
+        -----------
+        purchase_price : float
+            Purchase price in USD
+        target_irr : float
+            Target IRR as decimal (e.g., 0.20 for 20%)
+        investment_tenor : int, optional
+            Investment tenor (uses current if not provided)
+            
+        Returns:
+        --------
+        dict
+            Results dictionary containing:
+            - 'streaming_percentage': Required streaming percentage
+            - 'purchase_price': Purchase price
+            - 'actual_irr': Actual IRR achieved
+            - 'target_irr': Target IRR
+            - 'npv': NPV
+            - 'results_df': Full DCF results
+        """
+        if self.data is None:
+            raise ValueError("Data not loaded. Please call load_data() first.")
+        
+        if investment_tenor is None:
+            investment_tenor = self._investment_tenor
+        
+        # Initialize solver
+        solver = DealValuationSolver(
+            dcf_calculator=self.dcf_calculator,
+            data=self.data,
+            tolerance=1e-4
+        )
+        
+        # Solve for streaming percentage
+        results = solver.solve_for_streaming_given_price(
+            purchase_price=purchase_price,
+            target_irr=target_irr,
+            investment_tenor=investment_tenor
+        )
+        
+        # Store results
+        self.deal_valuation_results = results
+        
+        return results
+    
     def run_sensitivity_table(
         self,
         credit_range: List[float],
@@ -1087,5 +1263,6 @@ class CarbonModelGenerator:
             monte_carlo_results=self.monte_carlo_results,
             risk_flags=self.risk_flags,
             risk_score=self.risk_score,
-            breakeven_results=self.breakeven_results
+            breakeven_results=self.breakeven_results,
+            deal_valuation_results=self.deal_valuation_results
         )
