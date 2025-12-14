@@ -32,16 +32,28 @@ ENV/
 *.swo
 *~
 
-# Excel files (keep template, ignore outputs)
+# Excel files (keep templates and test data, ignore outputs)
 *.xlsx
 !Analyst_Model_Test_OCC.xlsx
+!templates/master_template.xlsx
+!data/fake_dataset_*.xlsx
 ~$*.xlsx
 
 # Test outputs
+Test_*.xlsx
+Test_*.xlsm
 test_*.xlsx
 debug_*.xlsx
 *_quick_test.xlsx
+*_Output*.xlsx
+*_Output*.xlsm
 carbon_model_results.xlsx
+results.xlsx
+Master_Template_Example_Output.xlsx
+
+# Temporary files
+temp_*.png
+temp_*.xlsx
 
 # OS
 .DS_Store

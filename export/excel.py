@@ -82,7 +82,11 @@ class ExcelExporter:
         if use_template:
             try:
                 from .template_based_export import TemplateBasedExporter
-                template_exporter = TemplateBasedExporter()
+                # Extract company name and num_years from assumptions if provided
+                company_name = assumptions.get('company_name', 'Investor')
+                num_years = assumptions.get('num_years', len(valuation_schedule) if valuation_schedule is not None else 20)
+                
+                template_exporter = TemplateBasedExporter(company_name=company_name, num_years=num_years)
                 if template_exporter.export_with_template(
                     filename=filename,
                     assumptions=assumptions,

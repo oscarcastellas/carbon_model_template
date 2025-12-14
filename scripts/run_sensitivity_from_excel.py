@@ -21,7 +21,7 @@ sys.path.insert(0, str(project_root))
 try:
     import openpyxl
     from openpyxl import load_workbook
-    from openpyxl.styles import PatternFill, Font
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 except ImportError:
     print("ERROR: openpyxl is required. Install with: pip install openpyxl")
     sys.exit(1)
@@ -153,37 +153,72 @@ def write_results_to_excel(
     table_start_row = 14
     
     # Clear existing table area (rows 14-50, columns A-H)
+    # Unmerge any merged cells first
+    merged_ranges = list(ws.merged_cells.ranges)
+    for merged_range in merged_ranges:
+        if merged_range.min_row >= table_start_row + 1 and merged_range.max_row <= table_start_row + 50:
+            ws.unmerge_cells(str(merged_range))
+    
     for row in range(table_start_row, min(table_start_row + 50, ws.max_row + 1)):
         for col in range(1, 9):
             cell = ws.cell(row=row+1, column=col+1)
-            cell.value = None
+            if cell.value is not None:
+                cell.value = None
+            # Reset formatting
+            cell.fill = None
+            cell.font = None
+    
+    # Header fill and font
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    header_font = Font(bold=True, color='FFFFFF', size=10)
     
     # Write table header
     # First cell: empty (top-left corner)
-    ws.cell(row=table_start_row+1, column=1).value = 'Credit Volume →'
-    ws.cell(row=table_start_row+1, column=1).font = Font(bold=True)
-    ws.cell(row=table_start_row+1, column=1).fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-    ws.cell(row=table_start_row+1, column=1).font = Font(bold=True, color='FFFFFF')
+    header_cell = ws.cell(row=table_start_row+1, column=1)
+    header_cell.value = 'Credit Volume →'
+    header_cell.font = header_font
+    header_cell.fill = header_fill
+    header_cell.alignment = Alignment(horizontal='center', vertical='center')
+    header_cell.border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
     
     # Write column headers (price multipliers)
     col_idx = 2
     for price_mult in sensitivity_table.columns:
         cell = ws.cell(row=table_start_row+1, column=col_idx)
         cell.value = str(price_mult)
-        cell.font = Font(bold=True)
-        cell.fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-        cell.font = Font(bold=True, color='FFFFFF')
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
         col_idx += 1
     
     # Write row headers and data
     row_idx = table_start_row + 2
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
     for credit_mult in sensitivity_table.index:
         # Row header
         cell = ws.cell(row=row_idx, column=1)
         cell.value = str(credit_mult)
-        cell.font = Font(bold=True)
-        cell.fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-        cell.font = Font(bold=True, color='FFFFFF')
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = thin_border
         
         # Data cells
         col_idx = 2
@@ -195,25 +230,42 @@ def write_results_to_excel(
                 cell.number_format = '0.00%'
             else:
                 cell.value = 'N/A'
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = thin_border
             col_idx += 1
         row_idx += 1
     
-    # Write summary statistics
+    # Write summary statistics (check for merged cells first)
     summary_row = 30
-    ws.cell(row=summary_row, column=2).value = summary_stats.get('min_irr', '')
-    ws.cell(row=summary_row, column=2).number_format = '0.00%'
+    # Unmerge any cells in summary area
+    for merged_range in list(ws.merged_cells.ranges):
+        if merged_range.min_row >= summary_row and merged_range.max_row <= summary_row + 10:
+            ws.unmerge_cells(str(merged_range))
     
-    ws.cell(row=summary_row+1, column=2).value = summary_stats.get('max_irr', '')
-    ws.cell(row=summary_row+1, column=2).number_format = '0.00%'
+    summary_cell = ws.cell(row=summary_row, column=2)
+    if summary_cell.value is None or not hasattr(summary_cell, 'value') or not isinstance(summary_cell.value, str) or 'MergedCell' not in str(type(summary_cell)):
+        summary_cell.value = summary_stats.get('min_irr', '')
+        summary_cell.number_format = '0.00%'
     
-    ws.cell(row=summary_row+2, column=2).value = summary_stats.get('irr_range', '')
-    ws.cell(row=summary_row+2, column=2).number_format = '0.00%'
+    summary_cell = ws.cell(row=summary_row+1, column=2)
+    if summary_cell.value is None or not hasattr(summary_cell, 'value') or not isinstance(summary_cell.value, str) or 'MergedCell' not in str(type(summary_cell)):
+        summary_cell.value = summary_stats.get('max_irr', '')
+        summary_cell.number_format = '0.00%'
     
-    ws.cell(row=summary_row+3, column=2).value = summary_stats.get('base_case_irr', '')
-    ws.cell(row=summary_row+3, column=2).number_format = '0.00%'
+    summary_cell = ws.cell(row=summary_row+2, column=2)
+    if summary_cell.value is None or not hasattr(summary_cell, 'value') or not isinstance(summary_cell.value, str) or 'MergedCell' not in str(type(summary_cell)):
+        summary_cell.value = summary_stats.get('irr_range', '')
+        summary_cell.number_format = '0.00%'
+    
+    summary_cell = ws.cell(row=summary_row+3, column=2)
+    if summary_cell.value is None or not hasattr(summary_cell, 'value') or not isinstance(summary_cell.value, str) or 'MergedCell' not in str(type(summary_cell)):
+        summary_cell.value = summary_stats.get('base_case_irr', '')
+        summary_cell.number_format = '0.00%'
     
     # Write status
-    ws.cell(row=35, column=2).value = 'Success - Sensitivity Analysis Complete'
+    status_cell = ws.cell(row=35, column=2)
+    if status_cell.value is None or not hasattr(status_cell, 'value') or not isinstance(status_cell.value, str) or 'MergedCell' not in str(type(status_cell)):
+        status_cell.value = 'Success - Sensitivity Analysis Complete'
     
     # Generate and embed heatmap chart
     print("   Generating charts...")

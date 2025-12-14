@@ -868,6 +868,10 @@ class CarbonModelGUI:
             
             # Step 9: Export to Excel (95-100%)
             self.update_progress(95, "Exporting to Excel...")
+            
+            # Calculate number of years from data
+            num_years = len(data) if data is not None and len(data) > 0 else 20
+            
             assumptions = {
                 'wacc': config.wacc,
                 'rubicon_investment_total': config.rubicon_investment_total,
@@ -880,7 +884,10 @@ class CarbonModelGUI:
                 'use_gbm': config.use_gbm,
                 'gbm_drift': config.gbm_drift,
                 'gbm_volatility': config.gbm_volatility,
-                'simulations': config.simulations
+                'simulations': config.simulations,
+                # Template customization
+                'company_name': 'Investor',  # Generic default, can be customized
+                'num_years': num_years  # Use actual data length
             }
             
             # Use template-based export (automatically includes interactive modules with VBA/buttons)
